@@ -65,6 +65,7 @@ rownames(lu.10.sub) <- NULL
 ## --------------------------------------------------------------------------- #
 
 ## 2. Build sparse weight matrix based on (approximate) k-nearest neighbors
+## Based on Spotify's ANNOY C++ library
 
 ## --------------------------------------------------------------------------- #
 
@@ -72,7 +73,7 @@ rownames(lu.10.sub) <- NULL
 ## using RcppAnnoy and Matrix:
 ## 1. create index file
 ## 2. build trees
-## 3. find "knn"-nearest neighbors
+## 3. find "knn"-nearest neighbors, for any "knn"
 ## 4. build (column-oriented) sparse weight matrix
 
 d <- 2 # data dimension (lon/lat)
@@ -102,7 +103,7 @@ for (i in seq(n)) {
     ## get indices of knn nearest neighbors
     idx <- a$getNNsByItem(i, knn+1) # includes self
     idx <- idx[idx!=i] # drop self
-    Wmat[i,idx] <- 1/length(idx) # mark neighbors (weighted)
+    Wmat[i,idx] <- 1/length(idx) # row-normalized weights
 }
 
 ## convert to CsparseMatrix?
