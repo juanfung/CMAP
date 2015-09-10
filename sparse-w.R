@@ -76,6 +76,8 @@ rownames(lu.10.sub) <- NULL
 ## 3. find "knn"-nearest neighbors, for any "knn"
 ## 4. build (column-oriented) sparse weight matrix
 
+## example:
+
 d <- 2 # data dimension (lon/lat)
 nt <- 50 # number of trees
 knn <- 6 # number of nearest neighbors
@@ -108,6 +110,29 @@ for (i in seq(n)) {
 
 ## convert to CsparseMatrix?
 Wmat <- as(Wmat, "CsparseMatrix")
+
+## --------------------------------------------------------------------------- #
+
+## wrap the steps above in a function or two
+
+## load functions
+## knnIndex: build index
+## sparseWeight: compute knn-weight matrix
+source("sparseWeight.R")
+
+df <- lu.10[,c("Longitude","Latitude")]
+
+## index takes time to build...
+a <- knnIndex(df, nt=nt) 
+
+## ...but once built, Wmat is fast
+Wmat1 <- sparseWeight(df, knn=knn, a=a)
+
+Wmat2 <- sparseWeight(df, knn=2*knn, a=a)
+
+all.equal(Wmat,Wmat1)
+
+## --------------------------------------------------------------------------- #
 
 ## save Wmat
 save(Wmat, file=paste0(cmap.dir,"Misc/Wmat.Rda"))
