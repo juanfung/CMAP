@@ -7,6 +7,7 @@
 ## 3. Compute distances from parcels to nearest county border
 ## 4. Assign Census tracts and blocks; Chicago dummy
 ## 5. Aggregate Land Use indicators
+## 6. Compute distances from parcels to nearest municipal border
 
 ## --------------------------------------------------------------------------- #
 
@@ -78,18 +79,19 @@ writeOGR(the.polys,dsn=cmap.dir,layer="the_polys",driver="ESRI Shapefile")
 
 ## N.B.: Census not in same projection as CMAP
 
+
 ## --------------------------------------------------------------------------- #
 
-## 1. Prep Land Use 2010 data
+## 2. Prep Land Use 2010 data
 ## N.B.:
 ## Shapefile created in ArcMap; original data in .gdb format
 
-lu.10.dir = paste0(cmap.dir,"LU10/shapefile")
+lu.10.dir <- paste0(cmap.dir,"LU10/shapefile")
 
-shp.files = list.files(lu.10.dir)
-layer = shp.files[grep("\\.shp$",shp.files)]
-layer = substr(layer,1,nchar(layer)-4)
-lu.10 = readOGR(lu.10.dir,layer)
+shp.files <- list.files(lu.10.dir)
+layer <- shp.files[grep("\\.shp$",shp.files)]
+layer <- substr(layer,1,nchar(layer)-4)
+lu.10 <- readOGR(lu.10.dir,layer)
 
 ## Subset by {residential, commercial, industrial}
 
@@ -107,13 +109,13 @@ lu.10 = readOGR(lu.10.dir,layer)
 ## 6000 - non-parcel areas
 ## 9999 - not classifiable
 
-lu.10 = lu.10[grep("^1(1|2|4)",lu.10$LANDUSE),]
+lu.10 <- lu.10[grep("^1(1|2|4)",lu.10$LANDUSE),]
 
 ## label land use categories
-lu.10[grep("^11",lu.10$LANDUSE),"Use"] = "Residential"
-lu.10[grep("^12",lu.10$LANDUSE),"Use"] = "Commercial"
-lu.10[grep("^14",lu.10$LANDUSE),"Use"] = "Industrial"
-lu.10$Use = as.factor(lu.10$Use)
+lu.10[grep("^11",lu.10$LANDUSE),"Use"] <- "Residential"
+lu.10[grep("^12",lu.10$LANDUSE),"Use"] <- "Commercial"
+lu.10[grep("^14",lu.10$LANDUSE),"Use"] <- "Industrial"
+lu.10$Use <- as.factor(lu.10$Use)
 
 ## drop unused levels
 for (i in names(lu.10)) {
@@ -136,7 +138,7 @@ for (i in 1:length(fips)) {
     lu.10[grep(paste0("^",fips[i]),lu.10$LUI2010_ID),"County"] = names(ilfips[i])
 }
 
-lu.10$County = as.factor(lu.10$County)
+lu.10$County <- as.factor(lu.10$County)
 
 ## Compute centroid lon/lat
 
@@ -153,15 +155,13 @@ rm(centroids)
 
 ## 3. Compute distance to nearest county line
 
-
-## ALTERNATIVE:
-## geosphere::dist2Line
-
-
+## using McSpatial::geoshape
+## TODO: compare to geosphere::dist2Line
 
 lu.10$dboundary <- geoshape(lu.10$Longitude,lu.10$Latitude,linefile=colines[["County.Lines"]])
 
-## ALTERNATIVE: Compute by county
+## ALTERNATIVE:
+## Compute by county
 
 a <- NULL
 n <- 1
@@ -252,7 +252,93 @@ rm(chi,chi.tract)
 
 ## --------------------------------------------------------------------------- #
 
-## 5. SAVE
+## 6. Compute distance to nearest municipal border
+
+## 6a. Compute distances to Census county subdivisions (township, etc.) boundaries
+
+## Steps
+## For each FIPS:
+## -import, subset, spRbind
+## -compute distance
+
+## list shapefiles
+tl.shp <- list.files(tiger,pattern="cousub10\\.shp$")
+
+cousub10 <- NULL
+
+for (i in ilfips) {
+    ## import County Subdivision shapefile
+    cousub <- tl.shp[grep(i,tl.shp)]
+    cousub <- substr(cousub,1,nchar(cousub)-4)
+    cousub <- readOGR(tiger,cousub)
+
+    ## project
+    cousub <- spTransform(cousub, CRSobj = CRS(proj4string(lu.10)))
+
+    ## subset: exclude FIPS codes for Lake Michigan
+    cousub <- cousub[!(cousub[["COUNTYFP10"]] %in% c("000000","990000")),]
+
+    ## Create unique polygon IDs
+    row.names(cousub) <- paste(row.names(cousub),i,sep=".")
+
+    ## first pass flag
+    if (i==ilfips[1]) { 
+            cousub10 <- cousub
+    } else {
+        cousub10 <- spRbind(cousub10,cousub)
+    }
+    
+    ## clean up
+    rm(cousub)
+}
+
+## convert to SpatialLinesDataFrame
+cousub10 <- as(cousub10,"SpatialLinesDataFrame")
+
+## save township boundaries
+save(cousub10,file=paste0(cmap.dir,"Misc/cousub",vintage,".Rda"))
+
+## compute distance
+lu.10$cousub.distance <- geoshape(lu.10$Longitude,lu.10$Latitude,linefile=cousub10)
+
+## 6b. compute distances to Census place boundaries
+## N.B.: Census places NOT legal entities, though often coincide
+
+## Steps
+## -import (State-wide shapefile)
+## -overlay
+## -compute distance
+
+## load shapefile
+place10 <- list.files(tiger,pattern="place10\\.shp$")
+place10 <- substr(place10,1,nchar(place10)-4)
+place10 <- readOGR(tiger,place10)
+
+## project
+place10 <- spTransform(place10, CRSobj = CRS(proj4string(lu.10)))
+
+## overlay places and CMAP
+lmat <- SpatialPoints(lu.10[,c("Longitude","Latitude")],proj4string=CRS(proj4string(lu.10)))
+over.pts <- over(lmat,place10)
+
+## merge
+lu.10 <- spCbind(lu.10,over.pts[,c("PLACEFP10","NAMELSAD10")])
+
+## convert to SpatialLines
+place10 <- as(place10,"SpatialLinesDataFrame")
+
+## fix names
+names(lu.10) <- gsub("NAMELSAD10","PLACENAME10",names(lu.10))
+
+## compute distances
+lu.10$place.distance <- geoshape(lu.10$Longitude,lu.10$Latitude,linefile=place10)
+
+## save lines
+save(place10,file=paste0(cmap.dir,"Misc/place",vintage,".Rda"))
+
+## --------------------------------------------------------------------------- #
+
+## 7. SAVE lu.10
 
 lu.10.dir <- gsub("(.*)shapefile","\\1",lu.10.dir)
 
