@@ -1,4 +1,4 @@
-## READ ME
+## CMAP Land Use
 
 Predict land use in Chicago Metro Area by county and municipal lines
 
