@@ -1,8 +1,8 @@
-# READ ME # 
+# READ ME
 
 Predict land use in Chicago Metro Area by county and municipal lines
 
-### Contents ###
+### Contents
 
 * load.R: loads packages, functions and paths
 * prep.R: prepare CMAP's GIS data for work in R
